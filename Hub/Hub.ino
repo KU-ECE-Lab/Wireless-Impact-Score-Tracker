@@ -1,195 +1,59 @@
-#define ETL_NO_STL
-
-#include <esp_now.h>
-#include <WiFi.h>
+#include <Arduino_DebugUtils.h>
+// #define ETL_NO_STL
 #include <ArduinoJson.h>
 #include <Embedded_Template_Library.h>
 #include <etl/array.h>
 #include <Arduino.h>
 #include <sdkconfig.h>
 
-// #include "C:\Users\treys\AppData\Local\Arduino15\packages\esp32\hardware\esp32\2.0.4\tools\sdk\esp32s3\include\newlib\platform_include\assert.h"
-
-// using mac_t = etl::array<uint8_t, 6>;
-
-// struct Satellite {
-//   mac_t mac_address;
-//   esp_now_peer_info_t peer_info;
-//   bool peer_exists;
-//   bool peer_connected;
-// };
-
-//  void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) {
-//    Serial.println("Recieved!");
-//    char macStr[18];
-//    Serial.print("Packet received from: ");
-//    snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-//    Serial.println(macStr);
-
-//    StaticJsonDocument<100> doc;
-// //   memcpy(buf, incomingData, len);
-//    DeserializationError error = deserializeMsgPack(doc, incomingData);
-
-//   if (error) {
-//     Serial.print("deserializeMsgPack() failed: ");
-//     Serial.println(error.f_str());
-//     return;
-//   }
-
-//   bool global_reset = doc["globalReset"];
-//   bool local_reset = doc["localReset"];
-//   int threshold = doc["threshold"];
-
-//   Serial.printf("Global Reset: %s Local Reset: %s Threshold: %d\n", global_reset, local_reset, threshold);
-   
-// //   Serial.printf("Board ID %u: %u bytes\n", myData.id, len);
-//    // Update the structures with the new incoming data
-// //   boardsStruct[myData.id-1].x = myData.x;
-// //   boardsStruct[myData.id-1].y = myData.y;
-// //   Serial.printf("x value: %d \n", boardsStruct[myData.id-1].x);
-// //   Serial.printf("y value: %d \n", boardsStruct[myData.id-1].y);
-//    Serial.println();
-//  }
-
-// constexpr Satellite satellite_0 = {{0x4C, 0xEB, 0xD6, 0x7B, 0x02, 0x90}};
-
-// etl::array<Satellite, 1> satellites = {satellite_0};
-
-// void setup() {
-//   Serial.begin(115200);
-//   while(!Serial);
-  
-//   //Set device as a Wi-Fi Station
-//   WiFi.mode(WIFI_STA);
-
-//   if (esp_now_init() != ESP_OK) {
-//     Serial.println("Error initializing ESP-NOW");
-//     while(1) continue;
-//   } else {
-//     Serial.println("ESP Now initialized");
-//   }
-  
-//   // esp_now_register_send_cb(OnDataSent);
-//    esp_now_register_recv_cb(OnDataRecv);
-//    Serial.println("Registered callback");
-
-//   // for (auto& peer : satellites) {
-//   //   memcpy(peer.peer_info.peer_addr, peer.mac_address.data(), peer.mac_address.size());
-//   //   peer.peer_info.channel = 0;
-//   //   peer.peer_info.encrypt = false;
-//   //   peer.peer_exists = esp_now_is_peer_exist(peer.mac_address.data());
-
-//   //   char str_buf[40];
-//   //   snprintf(str_buf, sizeof(str_buf), "Found peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
-//   //   Serial.print(str_buf);
-//   // }
-//   // Serial.println("Finished finding peers");
-
-//   // for (auto& peer : satellites) {
-//   //   char str_buf[60];
-//   //   if (peer.peer_exists) {
-//   //     if (esp_now_add_peer(&peer.peer_info) == ESP_OK) {
-//   //       snprintf(str_buf, sizeof(str_buf), "Added peer: %02x:%02x:%02x:%02x:%02x:%02x", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
-//   //     } else {
-//   //       snprintf(str_buf, sizeof(str_buf), "FAILED TO ADD EXISTING PEER: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
-//   //     }
-//   //     Serial.print(str_buf);
-//   //   }
-//   // }
-//   // Serial.println("Finished adding peers");
-// }
- 
-// void loop() {
-// }
-
-
-
-
 
 // Sender Code
-
 #include <esp_now.h>
 #include <WiFi.h>
-#include <Adafruit_GFX.h>    // Core graphics library
-#include <Adafruit_ST7789.h> // Hardware-specific library for ST7789
+#include <Adafruit_GFX.h>     // Core graphics library
+#include <Adafruit_ST7789.h>  // Hardware-specific library for ST7789
 #include <SPI.h>
+#include <etl/atomic.h>
+
+// #define DEBUG
+
+#if CONFIG_FREERTOS_UNICORE
+#define ARDUINO_RUNNING_CORE 0
+#else
+#define ARDUINO_RUNNING_CORE 1
+#endif
 
 // Use dedicated hardware SPI pins
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
+using mac_t = etl::array<uint8_t, 6>;
+
+struct Satellite {
+  mac_t mac_address;
+  esp_now_peer_info_t peer_info;
+  bool peer_exists;
+  bool peer_connected;
+};
+
 // REPLACE WITH THE RECEIVER'S MAC Address
-uint8_t broadcastAddress[] = {0xF4, 0x12, 0xFA, 0x5A, 0x1B, 0xE0};
+// mac_t broadcastAddress = { 0xF4, 0x12, 0xFA, 0x5A, 0x1B, 0xE0 };
 
-// Structure example to send data
-// Must match the receiver structure
-typedef struct struct_message {
-    int id; // must be unique for each sender board
-    int x;
-    int y;
-} struct_message;
+constexpr Satellite satellite_0 = { { 0xF4, 0x12, 0xFA, 0x5A, 0x1B, 0xE0 } };
 
-struct_message board1;
-
-struct_message boardsStruct[1] = {board1};
-
-// Create a struct_message called myData
-struct_message myData;
-struct_message otherData;
+etl::array<Satellite, 1> satellites = { satellite_0 };
 
 // Create peer interface
 esp_now_peer_info_t peerInfo;
 
-// // callback function that will be executed when data is received
-// void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) {
-//   char macStr[18];
-//   Serial.print("Packet received from: ");
-//   snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-//            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-//   Serial.println(macStr);
-//   memcpy(&myData, incomingData, sizeof(myData));
-//   Serial.printf("Board ID %u: %u bytes\n", myData.id, len);
-//   // Update the structures with the new incoming data
-//   boardsStruct[myData.id-1].x = myData.x;
-//   boardsStruct[myData.id-1].y = myData.y;
-//   Serial.printf("x value: %d \n", boardsStruct[myData.id-1].x);
-//   Serial.printf("y value: %d \n", boardsStruct[myData.id-1].y);
-//   Serial.println();
-// }
+StaticJsonDocument<512> json_doc;
 
- void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) {
-   Serial.println("Recieved!");
-   char macStr[18];
-   Serial.print("Packet received from: ");
-   snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-   Serial.println(macStr);
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
+  Debug.print(DBG_INFO, "Packet Received\n");
+  Debug.print(DBG_DEBUG, "From: %02X:%02X:%02X:%02X:%02X:%02X\n", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
 
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setTextSize(2);
-
-   StaticJsonDocument<200> doc;
-//   memcpy(buf, incomingData, len);
-   DeserializationError error = deserializeMsgPack(doc, incomingData);
-
-  if (error) {
-    Serial.print("deserializeMsgPack() failed: ");
-    Serial.println(error.f_str());
-    return;
-  } else {
-    Serial.println("Deserialization Successful");
-  }
-
-  bool global_reset = doc["globalReset"];
-  bool local_reset = doc["localReset"];
-  int threshold = doc["threshold"];
-
-  Serial.println("Parsing Successful");
-
-  char parsed[200];
-  sprintf(parsed, "Global Reset: %s Local Reset: %s Threshold: %d\n\n", (global_reset) ? "True" : "False", (local_reset) ? "True" : "False", threshold);
-  tft.setCursor(0, 0);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.print(parsed);
- }
+  DeserializationError error = deserializeMsgPack(json_doc, incomingData);
+  if (error) Debug.print(DBG_ERROR, "deserializeMsgPack() failed: %s\n", error.f_str());
+}
 
 // callback when data is sent
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -197,21 +61,26 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
+
+
 void setup() {
   // Init Serial Monitor
   Serial.begin(115200);
+  Debug.setDebugOutputStream(&Serial);
+  Debug.setDebugLevel(DBG_ERROR);
+  Debug.newlineOff();
 
-    // turn on backlite
+  // turn on backlite
   pinMode(TFT_BACKLITE, OUTPUT);
   digitalWrite(TFT_BACKLITE, HIGH);
 
-    // turn on the TFT / I2C power supply
+  // turn on the TFT / I2C power supply
   pinMode(TFT_I2C_POWER, OUTPUT);
   digitalWrite(TFT_I2C_POWER, HIGH);
   delay(10);
 
-    // initialize TFT
-  tft.init(135, 240); // Init ST7789 240x135
+  // initialize TFT
+  tft.init(135, 240);  // Init ST7789 240x135
   tft.setRotation(3);
   tft.fillScreen(ST77XX_BLACK);
 
@@ -228,33 +97,42 @@ void setup() {
   // get the status of Trasnmitted packet
   esp_now_register_recv_cb(OnDataRecv);
   // esp_now_register_send_cb(OnDataSent);
-  
-  // Register peer
-  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
-  peerInfo.channel = 0;  
-  peerInfo.encrypt = false;
-  
-  // Add peer        
-  if (esp_now_add_peer(&peerInfo) != ESP_OK){
-    Serial.println("Failed to add peer");
-    return;
-  }
-}
- 
-void loop() {
-  // // Set values to send
-  // myData.id = 1;
-  // myData.x = random(0,50);
-  // myData.y = random(0,50);
 
-  // // Send message via ESP-NOW
-  // esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &myData, sizeof(myData));
-   
-  // if (result == ESP_OK) {
-  //   Serial.println("Sent with success");
-  // }
-  // else {
-  //   Serial.println("Error sending the data");
-  // }
-  delay(500);
+  for (auto &peer : satellites) {
+    memcpy(peer.peer_info.peer_addr, peer.mac_address.data(), peer.mac_address.size());
+    peer.peer_info.channel = 0;
+    peer.peer_info.encrypt = false;
+    peer.peer_exists = esp_now_is_peer_exist(peer.mac_address.data());
+
+    Debug.print(DBG_DEBUG, "Found peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
+  }
+  Debug.print(DBG_VERBOSE, "Finished finding peers\n");
+
+  for (auto &peer : satellites) {
+    if (peer.peer_exists) {
+      if (esp_now_add_peer(&peer.peer_info) == ESP_OK) {
+        Debug.print(DBG_DEBUG, "Added peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
+      } else {
+        Debug.print(DBG_ERROR, "Failed to add peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
+      }
+    }
+  }
+  Debug.print(DBG_VERBOSE, "Finished adding peers\n");
+}
+
+void loop() {
+  bool global_reset = json_doc["globalReset"];
+  bool local_reset = json_doc["localReset"];
+  int threshold = json_doc["threshold"];
+
+  Debug.print(DBG_VERBOSE, "JSON Parsing Successful");
+
+  char parsed[200];
+  sprintf(parsed, "Global Reset: %s Local Reset: %s Threshold: %d\n\n", (global_reset) ? "True" : "False", (local_reset) ? "True" : "False", threshold);
+  tft.setCursor(0, 0);
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.fillScreen(ST77XX_BLACK);
+  tft.print(parsed);
+  delay(200);
 }
