@@ -5,6 +5,10 @@
 #include <ArduinoJson.h>
 #include <Embedded_Template_Library.h>
 #include <etl/array.h>
+#include <Arduino.h>
+#include <sdkconfig.h>
+
+// #include "C:\Users\treys\AppData\Local\Arduino15\packages\esp32\hardware\esp32\2.0.4\tools\sdk\esp32s3\include\newlib\platform_include\assert.h"
 
 // using mac_t = etl::array<uint8_t, 6>;
 
@@ -106,7 +110,12 @@
 
 #include <esp_now.h>
 #include <WiFi.h>
+#include <Adafruit_GFX.h>    // Core graphics library
+#include <Adafruit_ST7789.h> // Hardware-specific library for ST7789
+#include <SPI.h>
 
+// Use dedicated hardware SPI pins
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
 // REPLACE WITH THE RECEIVER'S MAC Address
 uint8_t broadcastAddress[] = {0xF4, 0x12, 0xFA, 0x5A, 0x1B, 0xE0};
@@ -154,6 +163,9 @@ esp_now_peer_info_t peerInfo;
    snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
    Serial.println(macStr);
 
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextSize(2);
+
    StaticJsonDocument<200> doc;
 //   memcpy(buf, incomingData, len);
    DeserializationError error = deserializeMsgPack(doc, incomingData);
@@ -172,7 +184,11 @@ esp_now_peer_info_t peerInfo;
 
   Serial.println("Parsing Successful");
 
-  Serial.printf("Global Reset: %s Local Reset: %s Threshold: %d\n\n", (global_reset) ? "True" : "False", (local_reset) ? "True" : "False", threshold);
+  char parsed[200];
+  sprintf(parsed, "Global Reset: %s Local Reset: %s Threshold: %d\n\n", (global_reset) ? "True" : "False", (local_reset) ? "True" : "False", threshold);
+  tft.setCursor(0, 0);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.print(parsed);
  }
 
 // callback when data is sent
@@ -184,6 +200,20 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 void setup() {
   // Init Serial Monitor
   Serial.begin(115200);
+
+    // turn on backlite
+  pinMode(TFT_BACKLITE, OUTPUT);
+  digitalWrite(TFT_BACKLITE, HIGH);
+
+    // turn on the TFT / I2C power supply
+  pinMode(TFT_I2C_POWER, OUTPUT);
+  digitalWrite(TFT_I2C_POWER, HIGH);
+  delay(10);
+
+    // initialize TFT
+  tft.init(135, 240); // Init ST7789 240x135
+  tft.setRotation(3);
+  tft.fillScreen(ST77XX_BLACK);
 
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
@@ -197,7 +227,7 @@ void setup() {
   // Once ESPNow is successfully Init, we will register for Send CB to
   // get the status of Trasnmitted packet
   esp_now_register_recv_cb(OnDataRecv);
-  esp_now_register_send_cb(OnDataSent);
+  // esp_now_register_send_cb(OnDataSent);
   
   // Register peer
   memcpy(peerInfo.peer_addr, broadcastAddress, 6);
@@ -226,5 +256,5 @@ void loop() {
   // else {
   //   Serial.println("Error sending the data");
   // }
-  // delay(10000);
+  delay(500);
 }

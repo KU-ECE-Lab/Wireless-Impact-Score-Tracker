@@ -1,6 +1,6 @@
 #define ETL_NO_STL
-#include <esp_now.h>
 #include <WiFi.h>
+#include <esp_now.h>
 #include <ArduinoJson.h>
 #include <Embedded_Template_Library.h>
 #include <etl/array.h>
@@ -193,21 +193,13 @@
 
 
 
-/*********
-  Rui Santos
-  Complete project details at https://RandomNerdTutorials.com/esp-now-many-to-one-esp32/
-  
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files.
-  
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
-*********/
+#include <Wire.h>
+#include <Adafruit_LIS3DH.h>
+#include <Adafruit_Sensor.h>
 
-// Reciever code
+Adafruit_LIS3DH lis;
 
-#include <esp_now.h>
-#include <WiFi.h>
+#define CLICKTHRESHHOLD 180
 
 uint8_t broadcastAddress[] = {0xF4, 0x12, 0xFA, 0x59, 0x6A, 0x64};
 
@@ -259,6 +251,9 @@ void setup() {
   //Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
 
+  pinMode(7, OUTPUT);
+  digitalWrite(7, HIGH);
+
   //Init ESP-NOW
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
@@ -280,7 +275,14 @@ void setup() {
     Serial.println("Failed to add peer");
     return;
   }
+
+  lis = Adafruit_LIS3DH();
+  lis.begin(0x18);
+  lis.setRange(LIS3DH_RANGE_4_G);   // 2, 4, 8 or 16 G!
+  lis.setClick(1, CLICKTHRESHHOLD);
 }
+
+int thres = 0;
  
 void loop() {
   // // Set values to send
@@ -305,7 +307,7 @@ void loop() {
 
   testDocument["globalReset"] = false;
   testDocument["localReset"] = true;
-  testDocument["threshold"] = random(0, 120);
+  testDocument["threshold"] = thres;
 
   uint8_t buffer[100];
 
@@ -321,6 +323,11 @@ void loop() {
     Serial.print("Error sending the data: ");
     Serial.println(result);
   }
-  delay(5000);
+
+  uint8_t click = lis.getClick();
+  if (click & 0x10 && !(click == 0) && (click & 0x30)) {
+    ++thres;
+  }
+  delay(1000);
 }
 
