@@ -25,7 +25,6 @@ using mac_t = etl::array<uint8_t, 6>;
 struct Satellite {
   mac_t mac_address;
   esp_now_peer_info_t peer_info;
-  bool peer_exists;
   bool peer_connected;
   float battery_voltage;
   float battery_percent;
@@ -97,16 +96,13 @@ void setup() {
     peer.peer_info.channel = 0; // Set the channel
     peer.peer_info.encrypt = false; // Do not encrypt the messages
 
-    // peer.peer_exists = esp_now_is_peer_exist(peer.mac_address.data()); // Check if the peer exists since this will be used later when adding peers
-    // Debug.print(DBG_DEBUG, "Found peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
-
-    // if (peer.peer_exists) {
       if (esp_now_add_peer(&peer.peer_info) == ESP_OK) { // Add the peer and check if there were any issues
+        peer.peer_connected = true;
         Debug.print(DBG_DEBUG, "Added peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
       } else {
+        peer.peer_connected = false;
         Debug.print(DBG_ERROR, "Failed to add peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
       }
-    // }
   }
   Debug.print(DBG_VERBOSE, "Finished adding peers\n");
 }

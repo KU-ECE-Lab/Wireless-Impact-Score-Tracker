@@ -6,6 +6,7 @@
 #include <etl/array.h>
 #include <etl/atomic.h>
 #include <Wire.h>
+#include <Adafruit_NeoPixel.h>
 #include <Adafruit_LIS3DH.h>
 #include <Adafruit_Sensor.h>
 #include <Arduino_DebugUtils.h>
@@ -35,14 +36,23 @@ struct Hub {
 
 Hub hub = { { 0xF4, 0x12, 0xFA, 0x59, 0x6A, 0x64 } };
 
+Adafruit_NeoPixel pixel(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
+
 etl::atomic<uint16_t> number_of_taps;
+etl::atomic<uint16_t> threshold;
+etl::atomic<uint16_t> poll_delay;
 
 void TaskCheckTaps(void* pvParameters) {
   (void) pvParameters;
   for (;;) {
     auto click = lis.getClick();
-    if (click & 0x10 && !(click == 0) && (click & 0x30)) ++number_of_taps;
-    delay(20);
+    if (click & 0x10 && !(click == 0) && (click & 0x30)){
+      digitalWrite(LED_BUILTIN, HIGH);
+      ++number_of_taps;
+    }
+    delay(poll_delay.load() / 2);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(poll_delay.load() / 2);
   }
 }
 
@@ -78,12 +88,38 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
+StaticJsonDocument<100> incoming_json;
+
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len) {
+  Debug.print(DBG_INFO, "Packet Received\n");
+  Debug.print(DBG_DEBUG, "From: %02X:%02X:%02X:%02X:%02X:%02X\n", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+
+  mac_t address = {mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]};
+  if (address != hub.mac_address) Debug.print(DBG_ERROR, "Packet received from MAC different than hub\n");
+
+  DeserializationError error = deserializeMsgPack(incoming_json, incoming_data); // Deserialize the MessagePack data into the JSON doc
+  if (error) Debug.print(DBG_ERROR, "deserializeMsgPack() failed: %s\n", error.f_str()); // Print any error if one occurs
+
+  if (incoming_json["localReset"] || incoming_json["globalReset"]) number_of_taps.store(0);
+  if (incoming_json["identify"]) {
+    for (uint16_t hsv = 0; hsv <= UINT16_MAX - 65; hsv+=65) {
+      auto color = pixel.ColorHSV(hsv);
+      pixel.fill(color);
+      pixel.show();
+    }
+  }
+  threshold.store(incoming_json["threshold"]);
+  poll_delay.store(incoming_json["pollDelay"]);
+}
+
 void setup() {
   //Initialize Serial Monitor
   Serial.begin(115200);
   Debug.setDebugOutputStream(&Serial);
   Debug.setDebugLevel(DBG_VERBOSE);
   Debug.newlineOff();
+
+  pixel.setBrightness(50);
 
   //Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
