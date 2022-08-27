@@ -1,21 +1,15 @@
-#include <Arduino_DebugUtils.h>
 // #define ETL_NO_STL
-#include <ArduinoJson.h>
 #include <Embedded_Template_Library.h>
 #include <etl/array.h>
-#include <Arduino.h>
-#include <sdkconfig.h>
-
-
-// Sender Code
+#include <etl/atomic.h>
+#include <etl/utility.h>
+#include <etl/algorithm.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <ArduinoJson.h>
 #include <Adafruit_GFX.h>     // Core graphics library
 #include <Adafruit_ST7789.h>  // Hardware-specific library for ST7789
-#include <SPI.h>
-#include <etl/atomic.h>
-
-// #define DEBUG
+#include <Arduino_DebugUtils.h>
 
 #if CONFIG_FREERTOS_UNICORE
 #define ARDUINO_RUNNING_CORE 0
@@ -33,26 +27,32 @@ struct Satellite {
   esp_now_peer_info_t peer_info;
   bool peer_exists;
   bool peer_connected;
+  float battery_voltage;
+  float battery_percent;
+  StaticJsonDocument<512> json_doc;
 };
 
-// REPLACE WITH THE RECEIVER'S MAC Address
-// mac_t broadcastAddress = { 0xF4, 0x12, 0xFA, 0x5A, 0x1B, 0xE0 };
+bool operator==(const Satellite& lhs, const Satellite& rhs) {
+  return lhs.mac_address == rhs.mac_address;
+}
 
-constexpr Satellite satellite_0 = { { 0xF4, 0x12, 0xFA, 0x5A, 0x1B, 0xE0 } };
+Satellite satellite_0 = { { 0xF4, 0x12, 0xFA, 0x5A, 0x1B, 0xE0 } };
 
 etl::array<Satellite, 1> satellites = { satellite_0 };
 
-// Create peer interface
-esp_now_peer_info_t peerInfo;
-
-StaticJsonDocument<512> json_doc;
-
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
+void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len) {
   Debug.print(DBG_INFO, "Packet Received\n");
   Debug.print(DBG_DEBUG, "From: %02X:%02X:%02X:%02X:%02X:%02X\n", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
 
-  DeserializationError error = deserializeMsgPack(json_doc, incomingData);
-  if (error) Debug.print(DBG_ERROR, "deserializeMsgPack() failed: %s\n", error.f_str());
+  mac_t address = {mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]};
+  auto it = etl::find_if(satellites.begin(), satellites.end(), [&](const Satellite& sat){return sat.mac_address == address;});
+
+  if (it == satellites.end()) {
+    Debug.print(DBG_ERROR, "Failed to find registered satellite with the MAC address received\n");
+    return;
+  }
+  DeserializationError error = deserializeMsgPack(it->json_doc, incoming_data); // Deserialize the MessagePack data into the JSON doc
+  if (error) Debug.print(DBG_ERROR, "deserializeMsgPack() failed: %s\n", error.f_str()); // Print any error if one occurs
 }
 
 // callback when data is sent
@@ -67,19 +67,14 @@ void setup() {
   // Init Serial Monitor
   Serial.begin(115200);
   Debug.setDebugOutputStream(&Serial);
-  Debug.setDebugLevel(DBG_ERROR);
+  Debug.setDebugLevel(DBG_INFO);
   Debug.newlineOff();
 
-  // turn on backlite
-  pinMode(TFT_BACKLITE, OUTPUT);
-  digitalWrite(TFT_BACKLITE, HIGH);
-
-  // turn on the TFT / I2C power supply
-  pinMode(TFT_I2C_POWER, OUTPUT);
-  digitalWrite(TFT_I2C_POWER, HIGH);
-  delay(10);
+  Debug.print(DBG_INFO, "MAC: %s", WiFi.macAddress());
 
   // initialize TFT
+  pinMode(TFT_BACKLITE, OUTPUT);
+  digitalWrite(TFT_BACKLITE, HIGH);
   tft.init(135, 240);  // Init ST7789 240x135
   tft.setRotation(3);
   tft.fillScreen(ST77XX_BLACK);
@@ -87,52 +82,47 @@ void setup() {
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
 
-  // Init ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
+  if (esp_now_init() != ESP_OK) { // Make sure ESP Now is initialized correctly
+    Debug.print(DBG_ERROR, "Error initializing ESP-NOW");
     return;
+  } else {
+    Debug.print(DBG_VERBOSE, "Successfully initialized ESP-NOW");
   }
 
-  // Once ESPNow is successfully Init, we will register for Send CB to
-  // get the status of Trasnmitted packet
-  esp_now_register_recv_cb(OnDataRecv);
+  esp_now_register_recv_cb(OnDataRecv); // Register the function to call when data is received via ESP Now
   // esp_now_register_send_cb(OnDataSent);
 
-  for (auto &peer : satellites) {
-    memcpy(peer.peer_info.peer_addr, peer.mac_address.data(), peer.mac_address.size());
-    peer.peer_info.channel = 0;
-    peer.peer_info.encrypt = false;
-    peer.peer_exists = esp_now_is_peer_exist(peer.mac_address.data());
+  for (auto &peer : satellites) { // Go through each satellite in the satellite list
+    memcpy(peer.peer_info.peer_addr, peer.mac_address.data(), peer.mac_address.size()); // Populate its peer_info mac address
+    peer.peer_info.channel = 0; // Set the channel
+    peer.peer_info.encrypt = false; // Do not encrypt the messages
 
-    Debug.print(DBG_DEBUG, "Found peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
-  }
-  Debug.print(DBG_VERBOSE, "Finished finding peers\n");
+    // peer.peer_exists = esp_now_is_peer_exist(peer.mac_address.data()); // Check if the peer exists since this will be used later when adding peers
+    // Debug.print(DBG_DEBUG, "Found peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
 
-  for (auto &peer : satellites) {
-    if (peer.peer_exists) {
-      if (esp_now_add_peer(&peer.peer_info) == ESP_OK) {
+    // if (peer.peer_exists) {
+      if (esp_now_add_peer(&peer.peer_info) == ESP_OK) { // Add the peer and check if there were any issues
         Debug.print(DBG_DEBUG, "Added peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
       } else {
         Debug.print(DBG_ERROR, "Failed to add peer: %02x:%02x:%02x:%02x:%02x:%02x\n", peer.mac_address[0], peer.mac_address[1], peer.mac_address[2], peer.mac_address[3], peer.mac_address[4], peer.mac_address[5]);
       }
-    }
+    // }
   }
   Debug.print(DBG_VERBOSE, "Finished adding peers\n");
 }
 
 void loop() {
-  bool global_reset = json_doc["globalReset"];
-  bool local_reset = json_doc["localReset"];
-  int threshold = json_doc["threshold"];
+  // bool global_reset = json_doc.second["globalReset"];
+  // bool local_reset = json_doc.second["localReset"];
+  // int threshold = json_doc.second["threshold"];
+  // Debug.print(DBG_VERBOSE, "JSON Parsing Successful\n");
 
-  Debug.print(DBG_VERBOSE, "JSON Parsing Successful");
-
-  char parsed[200];
-  sprintf(parsed, "Global Reset: %s Local Reset: %s Threshold: %d\n\n", (global_reset) ? "True" : "False", (local_reset) ? "True" : "False", threshold);
-  tft.setCursor(0, 0);
-  tft.setTextSize(2);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.fillScreen(ST77XX_BLACK);
-  tft.print(parsed);
+  // char parsed[200];
+  // sprintf(parsed, "Global Reset: %s Local Reset: %s Threshold: %d\n\n", (global_reset) ? "True" : "False", (local_reset) ? "True" : "False", threshold);
+  // tft.setCursor(0, 0);
+  // tft.setTextSize(2);
+  // tft.setTextColor(ST77XX_WHITE);
+  // tft.fillScreen(ST77XX_BLACK);
+  // tft.print(parsed);
   delay(200);
 }
