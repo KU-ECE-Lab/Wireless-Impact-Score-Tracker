@@ -18,7 +18,7 @@ int32_t encoder_position;
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
 // Create variables that will be editable through the menu and assign them initial values
-int interval = 500;
+int interval = 5;
 char label[GEM_STR_LEN] = "Blink!"; // Maximum length of the string should not exceed 16 characters
                                     // (plus special terminating character)!
 
@@ -31,9 +31,27 @@ boolean labelOn = false;
 // Create two menu item objects of class GEMItem, linked to interval and label variables
 // with validateInterval() callback function attached to interval menu item,
 // that will make sure that interval variable is within allowable range (i.e. >= 50)
-void validateInterval(); // Forward declaration
-GEMItem menuItemInterval("Interval:", interval, validateInterval);
+void printInterval(); // Forward declaration
+
+uint8_t range_threshold;
+GEMItem menuItemRange("Range:", range_threshold);
+uint8_t course_threshold;
+GEMItem menuItemCourse("Course:", course_threshold);
+uint8_t fine_threshold;
+GEMItem menuItemFine("Fine:", fine_threshold);
+
+
 GEMItem menuItemLabel("Label:", label);
+
+int threshold = 1;
+SelectOptionInt int_options[] = {
+  {"20", 0},
+  {"40", 1},
+  {"60", 2}
+};
+
+GEMSelect select_int(sizeof(int_options)/sizeof(int_options), int_options);
+GEMItem menuItemSelectInt("Int: ", threshold, select_int);
 
 // Create menu button that will trigger blinkDelay() function. It will blink the label on the screen with delay()
 // set to the value of interval variable. We will write (define) this function later. However, we should
@@ -110,8 +128,11 @@ void setup() {
 
 void setupMenu() {
   // Add menu items to Settings menu page
-  menuPageSettings.addMenuItem(menuItemInterval);
+  // menuPageSettings.addMenuItem(menuItemInterval);
   menuPageSettings.addMenuItem(menuItemLabel);
+  menuPageSettings.addMenuItem(menuItemRange);
+  menuPageSettings.addMenuItem(menuItemCourse);
+  menuPageSettings.addMenuItem(menuItemFine);
 
   // Add menu items to Main Menu page
   menuPageMain.addMenuItem(menuItemMainSettings);
@@ -146,16 +167,9 @@ void loop() {
       encoder_position = new_position;      // and save for next round
     }
   }
+  Serial.print("Current Value: ");
+  Serial.println(static_cast<int>(range_threshold) * 100 + static_cast<int>(course_threshold) * 10 + static_cast<int>(fine_threshold));
   delay(50);
-
-  // // If menu is ready to accept button press...
-  // if (menu.readyForKey()) {
-  //   // ...detect key press using KeyDetector library
-  //   myKeyDetector.detect();
-  //   // Pass pressed button to menu
-  //   // (pressed button ID is stored in trigger property of KeyDetector object)
-  //   menu.registerKeyPress(myKeyDetector.trigger);
-  // }
 }
 
 // ---
@@ -163,9 +177,9 @@ void loop() {
 // Validation routine of interval variable
 void validateInterval() {
   // Check if interval variable is within allowable range (i.e. >= 50)
-  if (interval < 50) {
-    interval = 50;
-  }
+  // if (interval < 50) {
+  //   interval = 50;
+  // }
   // Print interval variable to Serial
   Serial.print("Interval set: ");
   Serial.println(interval);
