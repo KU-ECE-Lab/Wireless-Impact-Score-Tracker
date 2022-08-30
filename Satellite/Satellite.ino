@@ -38,9 +38,10 @@ Hub hub = { { 0xF4, 0x12, 0xFA, 0x59, 0x6A, 0x64 } };
 
 Adafruit_NeoPixel pixel(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 
-etl::atomic<uint16_t> number_of_taps;
-etl::atomic<uint16_t> threshold;
-etl::atomic<uint16_t> poll_delay;
+// etl::atomic<uint16_t> number_of_taps;
+uint16_t number_of_taps;
+uint16_t threshold;
+uint16_t poll_delay = 20;
 
 void TaskCheckTaps(void* pvParameters) {
   (void) pvParameters;
@@ -50,27 +51,26 @@ void TaskCheckTaps(void* pvParameters) {
       digitalWrite(LED_BUILTIN, HIGH);
       ++number_of_taps;
     }
-    delay(poll_delay.load() / 2);
+    delay(poll_delay / 2);
     digitalWrite(LED_BUILTIN, LOW);
-    delay(poll_delay.load() / 2);
+    delay(poll_delay / 2);
   }
 }
 
 void TaskSendData(void* pvParameters) {
   (void) pvParameters;
   for (;;) {
-  StaticJsonDocument<100> testDocument;
+  StaticJsonDocument<200> testDocument;
 
-  testDocument["globalReset"] = false;
-  testDocument["localReset"] = true;
-  testDocument["threshold"] = number_of_taps.load();
+  testDocument["tapCount"] = number_of_taps;
+  Debug.print(DBG_INFO, "Count: %d\n", number_of_taps);
 
-  uint8_t buffer[100];
+  uint8_t buffer[200];
 
   int bytesWritten = serializeMsgPack(testDocument, buffer);
-  // for(int i = 0; i<bytesWritten; i++){
-  //   Serial.printf("%02X ",buffer[i]);
-  // }
+  for(int i = 0; i<bytesWritten; i++){
+    Serial.printf("%02X ",buffer[i]);
+  }
   Serial.println("Finished serializing");
   esp_err_t result = esp_now_send(hub.mac_address.data(), buffer, bytesWritten);
   if (result == ESP_OK)
@@ -88,7 +88,7 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-StaticJsonDocument<100> incoming_json;
+StaticJsonDocument<300> incoming_json;
 
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len) {
   Debug.print(DBG_INFO, "Packet Received\n");
@@ -100,16 +100,18 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len) 
   DeserializationError error = deserializeMsgPack(incoming_json, incoming_data); // Deserialize the MessagePack data into the JSON doc
   if (error) Debug.print(DBG_ERROR, "deserializeMsgPack() failed: %s\n", error.f_str()); // Print any error if one occurs
 
-  if (incoming_json["localReset"] || incoming_json["globalReset"]) number_of_taps.store(0);
+  if (incoming_json["localReset"] || incoming_json["globalReset"]) number_of_taps = 0;
   if (incoming_json["identify"]) {
-    for (uint16_t hsv = 0; hsv <= UINT16_MAX - 65; hsv+=65) {
+    for (uint16_t hsv = 0; hsv <= UINT16_MAX - 35; hsv+=35) {
       auto color = pixel.ColorHSV(hsv);
       pixel.fill(color);
       pixel.show();
     }
+    pixel.clear();
+    pixel.show();
   }
-  threshold.store(incoming_json["threshold"]);
-  poll_delay.store(incoming_json["pollDelay"]);
+  threshold = incoming_json["threshold"];
+  // poll_delay.store(incoming_json["pollDelay"]);
 }
 
 void setup() {
@@ -131,7 +133,7 @@ void setup() {
   }
 
   esp_now_register_send_cb(OnDataSent);
-  // esp_now_register_recv_cb(OnDataRecv);
+  esp_now_register_recv_cb(OnDataRecv);
 
   memcpy(hub.peer_info.peer_addr, hub.mac_address.data(), hub.mac_address.size());
   hub.peer_info.channel = 0;
