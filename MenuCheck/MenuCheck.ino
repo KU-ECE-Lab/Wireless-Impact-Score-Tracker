@@ -40,6 +40,13 @@ GEMItem menuItemCourse("Course:", course_threshold);
 uint8_t fine_threshold;
 GEMItem menuItemFine("Fine:", fine_threshold);
 
+void Identify() {
+  Serial.println("Identify");
+  Serial.print("Current Value: ");
+  Serial.println(static_cast<int>(range_threshold) * 100 + static_cast<int>(course_threshold) * 10 + static_cast<int>(fine_threshold));
+}
+
+GEMItem menuItemIdentify("Identify", Identify);
 
 GEMItem menuItemLabel("Label:", label);
 
@@ -128,7 +135,7 @@ void setup() {
 
 void setupMenu() {
   // Add menu items to Settings menu page
-  // menuPageSettings.addMenuItem(menuItemInterval);
+  menuPageSettings.addMenuItem(menuItemIdentify);
   menuPageSettings.addMenuItem(menuItemLabel);
   menuPageSettings.addMenuItem(menuItemRange);
   menuPageSettings.addMenuItem(menuItemCourse);
@@ -167,8 +174,6 @@ void loop() {
       encoder_position = new_position;      // and save for next round
     }
   }
-  Serial.print("Current Value: ");
-  Serial.println(static_cast<int>(range_threshold) * 100 + static_cast<int>(course_threshold) * 10 + static_cast<int>(fine_threshold));
   delay(50);
 }
 
