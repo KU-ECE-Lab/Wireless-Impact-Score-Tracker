@@ -40,7 +40,7 @@ Adafruit_NeoPixel pixel(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 
 // etl::atomic<uint16_t> number_of_taps;
 uint16_t number_of_taps;
-uint16_t threshold;
+uint16_t threshold = 20;
 uint16_t poll_delay = 20;
 
 void TaskCheckTaps(void* pvParameters) {
@@ -61,6 +61,8 @@ void TaskSendData(void* pvParameters) {
   (void) pvParameters;
   for (;;) {
   StaticJsonDocument<200> testDocument;
+
+Serial.print(WiFi.macAddress());
 
   testDocument["tapCount"] = number_of_taps;
   Debug.print(DBG_INFO, "Count: %d\n", number_of_taps);
@@ -94,6 +96,11 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len) 
   Debug.print(DBG_INFO, "Packet Received\n");
   Debug.print(DBG_DEBUG, "From: %02X:%02X:%02X:%02X:%02X:%02X\n", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
 
+  Serial.println("Data received: ");
+  for(int i = 0; i<len; i++){
+    Serial.printf("%02X ",incoming_data[i]);
+  }
+
   mac_t address = {mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]};
   if (address != hub.mac_address) Debug.print(DBG_ERROR, "Packet received from MAC different than hub\n");
 
@@ -111,7 +118,8 @@ void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len) 
     pixel.show();
   }
   threshold = incoming_json["threshold"];
-  // poll_delay.store(incoming_json["pollDelay"]);
+  poll_delay = incoming_json["pollDelay"];
+  lis.setClick(1, threshold);
 }
 
 void setup() {
@@ -120,6 +128,8 @@ void setup() {
   Debug.setDebugOutputStream(&Serial);
   Debug.setDebugLevel(DBG_VERBOSE);
   Debug.newlineOff();
+
+  pinMode(LED_BUILTIN, OUTPUT);
 
   pixel.setBrightness(50);
 
@@ -151,7 +161,6 @@ void setup() {
   lis = Adafruit_LIS3DH();
   lis.begin(0x18);
   lis.setRange(LIS3DH_RANGE_4_G);  // 2, 4, 8 or 16 G!
-  lis.setClick(1, CLICKTHRESHHOLD);
 
   xTaskCreatePinnedToCore(
     TaskCheckTaps,
