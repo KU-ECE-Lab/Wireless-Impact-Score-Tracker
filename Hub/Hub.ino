@@ -30,43 +30,40 @@ int32_t encoder_position;
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
 Satellite satellite_0 = { { 0xF4, 0x12, 0xFA, 0x5A, 0x1B, 0xE0 } };
-etl::array<Satellite, 1> satellites = { satellite_0 };
+Satellite satellite_1 = { { 0xF4, 0x12, 0xFA, 0x5A, 0x10, 0x90 } };
+etl::array<Satellite, 2> satellites = { satellite_0, satellite_1 };
 
-uint8_t range_threshold = 1;
-GEMItem menuItemRange("Range:", range_threshold);
-uint8_t course_threshold = 4;
-GEMItem menuItemCourse("Course:", course_threshold);
-uint8_t fine_threshold = 0;
-GEMItem menuItemFine("Fine:", fine_threshold);
+#define VAR_INIT(num) \
+  uint8_t range_threshold_##num = 1; \
+  GEMItem menu_item_range_##num("Range:", range_threshold_##num); \
+  uint8_t course_threshold_##num = 4; \
+  GEMItem menu_item_course_##num("Course:", course_threshold_##num); \
+  uint8_t fine_threshold_##num = 0; \
+  GEMItem menu_item_fine_##num("Fine:", fine_threshold_##num); \
+  int poll_delay_##num = 90; \
+  GEMItem menu_item_delay_##num("Poll Delay:", poll_delay_##num); \
+  int tap_count_##num; \
+  GEMItem menu_item_count_##num("Count:", tap_count_##num); \
+  bool modified_##num = false; \
+  bool identify_##num = false; \
+  void Identify##num() { \
+    identify_##num = true; \
+    modified_##num = true; \
+  } \
+  GEMItem menu_item_identify_##num("Identify", Identify##num); \
+  bool local_reset_##num = false; \
+  void ResetCount##num() { \
+    local_reset_##num = true; \
+    modified_##num = true; \
+  } \
+  GEMItem menu_item_reset_##num("Reset Count", ResetCount##num); \
+  GEMPage menu_page_satellite_settings_##num("Settings ##num"); \
+  GEMItem menu_item_main_settings_##num("Settings ##num", menu_page_satellite_settings_##num);
 
-int poll_delay = 10;
-GEMItem menuItemDelay("Poll Delay:", poll_delay);
-
-int sat_count;
-GEMItem menuItemCount("Count:", sat_count);
-
-
-bool identify = false;
-bool local_reset = false;
-bool modified = false;
-
-void Identify() {
-  identify = true;
-  modified = true;
-}
-GEMItem menuItemIdentify("Identify", Identify);
-
-void ResetCount() {
-  local_reset = true;
-  modified = true;
-}
-GEMItem menuItemReset("Reset Count", ResetCount);
+VAR_INIT(0)
+VAR_INIT(1)
 
 GEMPage menuPageMain("Main Menu");  // Main page
-GEMPage menuPageSettings("Settings");   // Settings submenu
-
-// Create menu item linked to Settings menu page
-GEMItem menuItemMainSettings("Settings", menuPageSettings);
 
 inline void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, int len) {
   Debug.print(DBG_INFO, "Packet Received\n");
@@ -77,8 +74,10 @@ inline void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, in
     return sat.mac_address == address;
   });
 
-  for(int i = 0; i<len; i++){
-    Serial.printf("%02X ",incoming_data[i]);
+  auto index = it - satellites.begin();
+
+  for (int i = 0; i < len; i++) {
+    Serial.printf("%02X ", incoming_data[i]);
   }
 
   if (it == satellites.end()) {
@@ -86,12 +85,20 @@ inline void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, in
     return;
   }
   // DeserializationError error = deserializeMsgPack(it->json_doc, incoming_data);           // Deserialize the MessagePack data into the JSON doc
-  DeserializationError error = deserializeMsgPack(satellite_0.json_doc, incoming_data);           // Deserialize the MessagePack data into the JSON doc
-  if (error) Debug.print(DBG_ERROR, "deserializeMsgPack() failed: %s\n", error.f_str());  // Print any error if one occurs
-  int count = satellite_0.json_doc["tapCount"];
-  menuItemCount.setReadonly(false);
-  sat_count = count;
-  menuItemCount.setReadonly(true);
+  DeserializationError error = deserializeMsgPack(satellites[index].json_doc, incoming_data);  // Deserialize the MessagePack data into the JSON doc
+  if (error) Debug.print(DBG_ERROR, "deserializeMsgPack() failed: %s\n", error.f_str());       // Print any error if one occurs
+  int count = satellites[index].json_doc["tapCount"];
+#define TAP_COUNT_SET(num) \
+  case num: \
+    menu_item_count_##num.setReadonly(false); \
+    tap_count_##num = count; \
+    menu_item_count_##num.setReadonly(true); \
+    break;
+
+  switch (index) {
+    TAP_COUNT_SET(0)
+    TAP_COUNT_SET(1)
+  }
   Debug.print(DBG_INFO, "Tap count: %d\n", count);
 }
 
@@ -106,22 +113,21 @@ inline void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 GEM_adafruit_gfx menu(tft, GEM_POINTER_ROW, GEM_ITEMS_COUNT_AUTO);
 
 void setupMenu() {
-  // Add menu items to Settings menu page
-  menuPageSettings.addMenuItem(menuItemCount);
-  menuPageSettings.addMenuItem(menuItemIdentify);
-  menuPageSettings.addMenuItem(menuItemReset);
-  menuPageSettings.addMenuItem(menuItemRange);
-  menuPageSettings.addMenuItem(menuItemCourse);
-  menuPageSettings.addMenuItem(menuItemFine);
-  menuPageSettings.addMenuItem(menuItemDelay);
+// Add menu items to Settings menu page
+#define ADD_MENUS(num) \
+  menu_page_satellite_settings_##num.addMenuItem(menu_item_count_##num); \
+  menu_page_satellite_settings_##num.addMenuItem(menu_item_identify_##num); \
+  menu_page_satellite_settings_##num.addMenuItem(menu_item_reset_##num); \
+  menu_page_satellite_settings_##num.addMenuItem(menu_item_range_##num); \
+  menu_page_satellite_settings_##num.addMenuItem(menu_item_course_##num); \
+  menu_page_satellite_settings_##num.addMenuItem(menu_item_fine_##num); \
+  menu_page_satellite_settings_##num.addMenuItem(menu_item_delay_##num); \
+  menu_item_count_##num.setReadonly(true); \
+  menuPageMain.addMenuItem(menu_item_main_settings_##num); \
+  menu_page_satellite_settings_##num.setParentMenuPage(menuPageMain);
 
-  menuItemCount.setReadonly(true);
-
-  // Add menu items to Main Menu page
-  menuPageMain.addMenuItem(menuItemMainSettings);
-
-  // Specify parent menu page for the Settings menu page
-  menuPageSettings.setParentMenuPage(menuPageMain);
+  ADD_MENUS(0)
+  ADD_MENUS(1)
 
   // Add Main Menu page to menu and set it as current
   menu.setMenuPageCurrent(menuPageMain);
@@ -192,7 +198,7 @@ void loop() {
     if (button != last_button) {
       if (button) menu.registerKeyPress(GEM_KEY_OK);
       last_button = button;
-            menu.drawMenu();
+      menu.drawMenu();
     }
 
     int32_t new_position = ss.getEncoderPosition();
@@ -205,49 +211,40 @@ void loop() {
       }
       encoder_position = new_position;  // and save for next round
     }
-    
   }
 
-  if (modified) {
-    auto threshold = static_cast<int>(range_threshold) * 100 + static_cast<int>(course_threshold) * 10 + static_cast<int>(fine_threshold);
-
-    satellite_0.json_doc["threshold"] = threshold;
-    satellite_0.json_doc["localReset"] = local_reset;
-    satellite_0.json_doc["globalReset"] = false;
-    satellite_0.json_doc["identify"] = identify;
-    satellite_0.json_doc["pollDelay"] = poll_delay;
-
-uint8_t buffer[300];
-    Debug.print(DBG_VERBOSE, "JSON Parsing Successful\n");
-
-      int bytesWritten = serializeMsgPack(satellite_0.json_doc, buffer);
-  for(int i = 0; i<bytesWritten; i++){
-    Serial.printf("%02X ",buffer[i]);
+#define CHECK_AND_SEND(num) \
+  if (modified_##num) { \
+    auto threshold = static_cast<int>(range_threshold_##num) * 100 + static_cast<int>(range_threshold_##num) * 10 + static_cast<int>(fine_threshold_##num); \
+    satellites[num].json_doc["threshold"] = threshold; \
+    satellites[num].json_doc["localReset"] = local_reset_##num; \
+    satellites[num].json_doc["globalReset"] = false; \
+    satellites[num].json_doc["identify"] = identify_##num; \
+    satellites[num].json_doc["pollDelay"] = poll_delay_##num; \
+\
+    uint8_t buffer[300]; \
+    Debug.print(DBG_VERBOSE, "JSON Parsing Successful\n"); \
+\
+    int bytesWritten = serializeMsgPack(satellites[num].json_doc, buffer); \
+    for (int i = 0; i < bytesWritten; i++) { \
+      Serial.printf("%02X ", buffer[i]); \
+    } \
+    Serial.println(); \
+    esp_err_t result = esp_now_send(satellites[num].mac_address.data(), buffer, bytesWritten); \
+    if (result == ESP_OK) { \
+      Serial.print("Sent data successfully!: "); \
+      Serial.println(num); \
+    } else { \
+      Serial.print("Error sending the data: "); \
+      Serial.println(result); \
+    } \
+    modified_##num = false; \
+    identify_##num = false; \
+    local_reset_##num = false; \
   }
-  Serial.println();
-  esp_err_t result = esp_now_send(satellite_0.mac_address.data(), buffer, bytesWritten);
-  if (result == ESP_OK)
-    Serial.println("Sent data successfully!");
-  else {
-    Serial.print("Error sending the data: ");
-    Serial.println(result);
-  }
-    modified = false;
-    identify = false;
-    local_reset = false;
-  }
+
+  CHECK_AND_SEND(0)
+  CHECK_AND_SEND(1)
 
   delay(10);
-  // bool global_reset = json_doc.second["globalReset"];
-  // bool local_reset = json_doc.second["localReset"];
-  // int threshold = json_doc.second["threshold"];
-  // Debug.print(DBG_VERBOSE, "JSON Parsing Successful\n");
-
-  // char parsed[200];
-  // sprintf(parsed, "Global Reset: %s Local Reset: %s Threshold: %d\n\n", (global_reset) ? "True" : "False", (local_reset) ? "True" : "False", threshold);
-  // tft.setCursor(0, 0);
-  // tft.setTextSize(2);
-  // tft.setTextColor(ST77XX_WHITE);
-  // tft.fillScreen(ST77XX_BLACK);
-  // tft.print(parsed);
 }
