@@ -31,7 +31,9 @@ Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
 Satellite satellite_0 = { { 0xF4, 0x12, 0xFA, 0x5A, 0x1B, 0xE0 } };
 Satellite satellite_1 = { { 0xF4, 0x12, 0xFA, 0x5A, 0x10, 0x90 } };
-etl::array<Satellite, 2> satellites = { satellite_0, satellite_1 };
+Satellite satellite_2 = { { 0xF4, 0x12, 0xFA, 0x5A, 0x11, 0xC4 } };
+Satellite satellite_3 = { { 0xF4, 0x12, 0xFA, 0x59, 0x96, 0x70 } };
+etl::array<Satellite, 4> satellites = { satellite_0, satellite_1, satellite_2, satellite_3 };
 
 #define VAR_INIT(num) \
   uint8_t range_threshold_##num = 1; \
@@ -44,6 +46,7 @@ etl::array<Satellite, 2> satellites = { satellite_0, satellite_1 };
   GEMItem menu_item_delay_##num("Poll Delay:", poll_delay_##num); \
   int tap_count_##num; \
   GEMItem menu_item_count_##num("Count:", tap_count_##num); \
+  GEMItem menu_item_count_main_##num("Count M:", tap_count_##num); \
   bool modified_##num = false; \
   bool identify_##num = false; \
   void Identify##num() { \
@@ -57,11 +60,22 @@ etl::array<Satellite, 2> satellites = { satellite_0, satellite_1 };
     modified_##num = true; \
   } \
   GEMItem menu_item_reset_##num("Reset Count", ResetCount##num); \
-  GEMPage menu_page_satellite_settings_##num("Settings ##num"); \
-  GEMItem menu_item_main_settings_##num("Settings ##num", menu_page_satellite_settings_##num);
+  GEMPage menu_page_satellite_settings_##num("Settings"); \
+  GEMItem menu_item_main_settings_##num("Settings", menu_page_satellite_settings_##num);
 
+//*******************************************************************************************************************
 VAR_INIT(0)
 VAR_INIT(1)
+VAR_INIT(2)
+VAR_INIT(3)
+
+void GlobalReset() {
+  ResetCount0();
+  ResetCount1();
+  ResetCount2();
+  ResetCount3();
+}
+GEMItem menu_item_global_reset("RESET ALL", GlobalReset);
 
 GEMPage menuPageMain("Main Menu");  // Main page
 
@@ -91,13 +105,18 @@ inline void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, in
 #define TAP_COUNT_SET(num) \
   case num: \
     menu_item_count_##num.setReadonly(false); \
+    menu_item_count_main_##num.setReadonly(false); \
     tap_count_##num = count; \
     menu_item_count_##num.setReadonly(true); \
+    menu_item_count_main_##num.setReadonly(true); \
     break;
 
   switch (index) {
+    //*******************************************************************************************************************
     TAP_COUNT_SET(0)
     TAP_COUNT_SET(1)
+    TAP_COUNT_SET(2)
+    TAP_COUNT_SET(3)
   }
   Debug.print(DBG_INFO, "Tap count: %d\n", count);
 }
@@ -124,10 +143,16 @@ void setupMenu() {
   menu_page_satellite_settings_##num.addMenuItem(menu_item_delay_##num); \
   menu_item_count_##num.setReadonly(true); \
   menuPageMain.addMenuItem(menu_item_main_settings_##num); \
+  menuPageMain.addMenuItem(menu_item_count_main_##num); \
   menu_page_satellite_settings_##num.setParentMenuPage(menuPageMain);
 
+  menuPageMain.addMenuItem(menu_item_global_reset);
+
+  //*******************************************************************************************************************
   ADD_MENUS(0)
   ADD_MENUS(1)
+  ADD_MENUS(2)
+  ADD_MENUS(3)
 
   // Add Main Menu page to menu and set it as current
   menu.setMenuPageCurrent(menuPageMain);
@@ -184,8 +209,6 @@ void setup() {
   ss.setGPIOInterrupts((uint32_t)1 << SS_SWITCH, 1);
   ss.enableEncoderInterrupt();
 
-
-
   menu.init();
   setupMenu();
   menu.drawMenu();
@@ -198,7 +221,6 @@ void loop() {
     if (button != last_button) {
       if (button) menu.registerKeyPress(GEM_KEY_OK);
       last_button = button;
-      menu.drawMenu();
     }
 
     int32_t new_position = ss.getEncoderPosition();
@@ -210,6 +232,7 @@ void loop() {
         menu.registerKeyPress(GEM_KEY_DOWN);
       }
       encoder_position = new_position;  // and save for next round
+      // menu.drawMenu();
     }
   }
 
@@ -243,8 +266,11 @@ void loop() {
     local_reset_##num = false; \
   }
 
+  //*******************************************************************************************************************
   CHECK_AND_SEND(0)
   CHECK_AND_SEND(1)
+  CHECK_AND_SEND(2)
+  CHECK_AND_SEND(3)
 
   delay(10);
 }
