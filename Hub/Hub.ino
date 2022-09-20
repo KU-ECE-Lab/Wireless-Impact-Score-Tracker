@@ -10,6 +10,8 @@
 #include "Adafruit_seesaw.h"
 #include <seesaw_neopixel.h>
 
+#include "SerialTransfer.h"
+
 #define SS_SWITCH 24
 #define SS_NEOPIX 6
 
@@ -25,6 +27,8 @@ Adafruit_seesaw ss;
 seesaw_NeoPixel sspixel = seesaw_NeoPixel(1, SS_NEOPIX, NEO_GRB + NEO_KHZ800);
 
 int32_t encoder_position;
+
+SerialTransfer my_transfer;
 
 // Use dedicated hardware SPI pins
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
@@ -91,7 +95,7 @@ inline void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, in
   auto index = it - satellites.begin();
 
   for (int i = 0; i < len; i++) {
-    Serial.printf("%02X ", incoming_data[i]);
+    Debug.print(DBG_VERBOSE, "%02X ", incoming_data[i]);
   }
 
   if (it == satellites.end()) {
@@ -102,11 +106,25 @@ inline void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, in
   DeserializationError error = deserializeMsgPack(satellites[index].json_doc, incoming_data);  // Deserialize the MessagePack data into the JSON doc
   if (error) Debug.print(DBG_ERROR, "deserializeMsgPack() failed: %s\n", error.f_str());       // Print any error if one occurs
   int count = satellites[index].json_doc["tapCount"];
+  static int count_0 = 0;
+  static int count_1 = 0;
+  static int count_2 = 0;
+  static int count_3 = 0;
+
+      uint16_t send_size = 0;
+    send_size = my_transfer.txObj(count_0, send_size);
+    send_size = my_transfer.txObj(count_1, send_size);
+    send_size = my_transfer.txObj(count_2, send_size);
+    send_size = my_transfer.txObj(count_3, send_size);
+    my_transfer.sendData(send_size);
+
+
 #define TAP_COUNT_SET(num) \
   case num: \
     menu_item_count_##num.setReadonly(false); \
     menu_item_count_main_##num.setReadonly(false); \
     tap_count_##num = count; \
+    count_##num = count;\
     menu_item_count_##num.setReadonly(true); \
     menu_item_count_main_##num.setReadonly(true); \
     break;
@@ -123,11 +141,9 @@ inline void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incoming_data, in
 
 // callback when data is sent
 inline void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  Debug.print(DBG_INFO, "\r\nLast Packet Send Status:\t");
+  Debug.print(DBG_INFO, status == ESP_NOW_SEND_SUCCESS ? "Delivery Success\n" : "Delivery Fail\n");
 }
-
-
 
 GEM_adafruit_gfx menu(tft, GEM_POINTER_ROW, GEM_ITEMS_COUNT_AUTO);
 
@@ -158,13 +174,18 @@ void setupMenu() {
   menu.setMenuPageCurrent(menuPageMain);
 }
 
+struct __attribute__((packed)) STRUCT {
+  char z;
+  double y;
+} testStruct;
 
 
 void setup() {
   // Init Serial Monitor
   Serial.begin(115200);
+  my_transfer.begin(Serial);
   Debug.setDebugOutputStream(&Serial);
-  Debug.setDebugLevel(DBG_INFO);
+  Debug.setDebugLevel(DBG_NONE);
   Debug.newlineOff();
 
   Debug.print(DBG_INFO, "MAC: %s", WiFi.macAddress());
@@ -181,18 +202,18 @@ void setup() {
   esp_now_register_recv_cb(OnDataRecv);  // Register the function to call when data is received via ESP Now
 
   if (!ss.begin(SEESAW_ADDR) || !sspixel.begin(SEESAW_ADDR)) {
-    Serial.println("Couldn't find seesaw on default address");
+    // Serial.println("Couldn't find seesaw on default address");
     while (1) delay(10);
   }
-  Serial.println("seesaw started");
+  // Serial.println("seesaw started");
 
   uint32_t version = ((ss.getVersion() >> 16) & 0xFFFF);
   if (version != 4991) {
-    Serial.print("Wrong firmware loaded? ");
-    Serial.println(version);
+    // Serial.print("Wrong firmware loaded? ");
+    // Serial.println(version);
     while (1) delay(10);
   }
-  Serial.println("Found Product 4991");
+  // Serial.println("Found Product 4991");
 
   // set not so bright!
   sspixel.setBrightness(20);
@@ -204,7 +225,7 @@ void setup() {
   // get starting position
   encoder_position = ss.getEncoderPosition();
 
-  Serial.println("Turning on interrupts");
+  // Serial.println("Turning on interrupts");
   delay(10);
   ss.setGPIOInterrupts((uint32_t)1 << SS_SWITCH, 1);
   ss.enableEncoderInterrupt();
@@ -250,16 +271,16 @@ void loop() {
 \
     int bytesWritten = serializeMsgPack(satellites[num].json_doc, buffer); \
     for (int i = 0; i < bytesWritten; i++) { \
-      Serial.printf("%02X ", buffer[i]); \
+      Debug.print(DBG_VERBOSE, "%02X ", buffer[i]); \
     } \
-    Serial.println(); \
+    Debug.print(DBG_VERBOSE, "\n"); \
     esp_err_t result = esp_now_send(satellites[num].mac_address.data(), buffer, bytesWritten); \
     if (result == ESP_OK) { \
-      Serial.print("Sent data successfully!: "); \
-      Serial.println(num); \
+      Debug.print(DBG_VERBOSE, "Sent data successfully!: "); \
+      Debug.print(DBG_VERBOSE, "%d\n", num); \
     } else { \
-      Serial.print("Error sending the data: "); \
-      Serial.println(result); \
+    Debug.print(DBG_VERBOSE, "Error sending the data: "); \
+      Debug.print(DBG_VERBOSE, "%d\n", result); \
     } \
     modified_##num = false; \
     identify_##num = false; \
